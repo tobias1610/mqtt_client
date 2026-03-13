@@ -36,6 +36,8 @@ SOFTWARE.
 #include <mqtt_client_interfaces/msg/ros_msg_type.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <rcpputils/env.hpp>
+#include <rosx_introspection/ros_parser.hpp>
+#include <rosx_introspection/ros_utils/ros2_helpers.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/char.hpp>
 #include <std_msgs/msg/float32.hpp>
@@ -1100,7 +1102,23 @@ void MqttClient::ros2mqtt(
   RCLCPP_DEBUG(get_logger(), "Received ROS message of type '%s' on topic '%s'",
                ros_msg_type.name.c_str(), ros_topic.c_str());
 
-  if (ros2mqtt.primitive) {  // publish as primitive (string) message
+  if (ros2mqtt.json) {  // publish as JSON message
+    // resolve ROS message to JSON string
+    std::string payload;
+
+    RosMsgParser::FlatMessage flat_msg;
+    RosMsgParser::RenamedValues renamed_values;
+    
+    RosMsgParser::Parser parser(ros_topic, RosMsgParser::ROSType(ros_msg_type.name), RosMsgParser::GetMessageDefinition(ros_msg_type.name));
+    RosMsgParser::ROS2_Deserializer deserializer;
+
+    std::vector<uint8_t> buffer_in = RosMsgParser::BuildMessageBuffer(serialized_msg, ros_topic);
+
+    std::string payload;
+    parser.deserializeIntoJson(buffer_in, &payload, &deserializer);
+    payload_buffer = std::vector<uint8_t>(payload.begin(), payload.end());
+    RCLCPP_INFO(get_logger(), "JSON-Payload '%s'", payload);
+  } else if (ros2mqtt.primitive) {  // publish as primitive (string) message
 
     // resolve ROS messages to primitive strings if possible
     std::string payload;
