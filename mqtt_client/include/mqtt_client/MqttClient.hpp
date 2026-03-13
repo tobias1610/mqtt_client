@@ -468,9 +468,6 @@ class MqttClient : public rclcpp::Node,
     bool stamped = false;    ///< whether to inject timestamp in MQTT message
     bool json = false;  ///< whether to publish as JSON (instead of binary ROS
                         ///< serialization)
-    std::shared_ptr<
-      RosMsgParser::ParsersCollection<RosMsgParser::ROS_Deserializer>>
-      json_parser;  ///< parser from json to ROS message and vice-versa
   };
 
   /**
@@ -547,6 +544,16 @@ class MqttClient : public rclcpp::Node,
    */
   rclcpp::Service<mqtt_client_interfaces::srv::NewMqtt2RosBridge>::SharedPtr
     new_mqtt2ros_bridge_service_;
+
+  /**
+   * @brief Collection of JSON deserializer (MQTT-> ROS2 messages)
+   */
+  std::shared_ptr<RosMsgParser::ParsersCollection<RosMsgParser::ROS2_Deserializer>> ros2_deserializer_collection_;
+
+  /**
+   * @brief Collection of JSON serializer (ROS2 -> MQTT messages)
+   */
+  std::shared_ptr<RosMsgParser::ParsersCollection<RosMsgParser::ROS2_Serializer>> ros2_serializer_collection_;
 
   /**
    * @brief Status variable keeping track of connection status to broker
