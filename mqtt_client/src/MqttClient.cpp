@@ -368,6 +368,9 @@ void MqttClient::loadParameters() {
     param_desc.description = "whether to publish as primitive message";
     declare_parameter(fmt::format("bridge.ros2mqtt.{}.primitive", ros_topic),
                       rclcpp::ParameterType::PARAMETER_BOOL, param_desc);
+    param_desc.description = "whether to publish as json message";
+    declare_parameter(fmt::format("bridge.ros2mqtt.{}.json", ros_topic),
+                      rclcpp::ParameterType::PARAMETER_BOOL, param_desc);
     param_desc.description =
       "If set, the ROS msg type provided will be used. If empty, the type is "
       "automatically deduced via the publisher";
@@ -413,6 +416,11 @@ void MqttClient::loadParameters() {
       "whether to publish as primitive message (if coming from non-ROS MQTT "
       "client)";
     declare_parameter(fmt::format("bridge.mqtt2ros.{}.primitive", mqtt_topic),
+                      rclcpp::ParameterType::PARAMETER_BOOL, param_desc);
+    param_desc.description =
+      "whether to publish as json message (if coming from non-ROS MQTT "
+      "client)";
+    declare_parameter(fmt::format("bridge.mqtt2ros.{}.json", mqtt_topic),
                       rclcpp::ParameterType::PARAMETER_BOOL, param_desc);
     param_desc.description =
       "If set, the ROS msg type provided will be used. If empty, the type is "
@@ -610,8 +618,10 @@ void MqttClient::loadParameters() {
         ros2mqtt.mqtt.retained = retained_param.as_bool();
 
       RCLCPP_INFO(get_logger(),
-                  "Bridging %sROS topic '%s' to MQTT topic '%s' %s",
-                  ros2mqtt.primitive ? "primitive " : "", ros_topic.c_str(),
+                  "Bridging %s%sROS topic '%s' to MQTT topic '%s' %s",
+                  ros2mqtt.primitive ? "primitive " : "",
+                  ros2mqtt.json ? "json " : "",
+                  ros_topic.c_str(),
                   ros2mqtt.mqtt.topic.c_str(),
                   ros2mqtt.stamped ? "and measuring latency" : "");
     } else {
@@ -727,9 +737,9 @@ void MqttClient::loadParameters() {
             .c_str());
       }
 
-      RCLCPP_INFO(get_logger(), "Bridging MQTT topic '%s' to %sROS topic '%s'",
+      RCLCPP_INFO(get_logger(), "Bridging MQTT topic '%s' to %s%sROS topic '%s'",
                   mqtt_topic.c_str(), mqtt2ros.primitive ? "primitive " : "",
-                  mqtt2ros.ros.topic.c_str());
+                  mqtt2ros.json ? "json " : "", mqtt2ros.ros.topic.c_str());
     } else {
       RCLCPP_WARN(
         get_logger(),
@@ -1114,10 +1124,9 @@ void MqttClient::ros2mqtt(
 
     std::vector<uint8_t> buffer_in = RosMsgParser::BuildMessageBuffer(serialized_msg, ros_topic);
 
-    std::string payload;
     parser.deserializeIntoJson(buffer_in, &payload, &deserializer);
     payload_buffer = std::vector<uint8_t>(payload.begin(), payload.end());
-    RCLCPP_INFO(get_logger(), "JSON-Payload '%s'", payload);
+    RCLCPP_INFO(get_logger(), "JSON-Payload '%s'", payload.c_str());
   } else if (ros2mqtt.primitive) {  // publish as primitive (string) message
 
     // resolve ROS messages to primitive strings if possible
@@ -1503,6 +1512,7 @@ void MqttClient::newRos2MqttBridge(
   ros2mqtt.ros.is_stale = true;
   ros2mqtt.mqtt.topic = request->mqtt_topic;
   ros2mqtt.primitive = request->primitive;
+  ros2mqtt.json = request->json;
   ros2mqtt.stamped = request->inject_timestamp;
   ros2mqtt.ros.queue_size = request->ros_queue_size;
   ros2mqtt.mqtt.qos = request->mqtt_qos;
@@ -1516,8 +1526,9 @@ void MqttClient::newRos2MqttBridge(
     ros2mqtt.stamped = false;
   }
 
-  RCLCPP_INFO(get_logger(), "Bridging %sROS topic '%s' to MQTT topic '%s' %s",
+  RCLCPP_INFO(get_logger(), "Bridging %s%sROS topic '%s' to MQTT topic '%s' %s",
               ros2mqtt.primitive ? "primitive " : "",
+              ros2mqtt.json ? "json " : "",
               request->ros_topic.c_str(), ros2mqtt.mqtt.topic.c_str(),
               ros2mqtt.stamped ? "and measuring latency" : "");
 
@@ -1538,6 +1549,7 @@ void MqttClient::newMqtt2RosBridge(
   mqtt2ros.ros.is_stale = true;
   mqtt2ros.ros.topic = request->ros_topic;
   mqtt2ros.primitive = request->primitive;
+  mqtt2ros.json = request->json;
   mqtt2ros.mqtt.qos = request->mqtt_qos;
   mqtt2ros.ros.queue_size = request->ros_queue_size;
   mqtt2ros.ros.latched = request->ros_latched;
@@ -1551,9 +1563,10 @@ void MqttClient::newMqtt2RosBridge(
         .c_str());
   }
 
-  RCLCPP_INFO(get_logger(), "Bridging MQTT topic '%s' to %sROS topic '%s'",
+  RCLCPP_INFO(get_logger(), "Bridging MQTT topic '%s' to %s%sROS topic '%s'",
               request->mqtt_topic.c_str(),
               mqtt2ros.primitive ? "primitive " : "",
+              mqtt2ros.json ? "json " : "",
               mqtt2ros.ros.topic.c_str());
 
   // subscribe to the MQTT topic

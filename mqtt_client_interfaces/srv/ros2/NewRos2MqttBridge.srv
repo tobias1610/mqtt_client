@@ -3,6 +3,7 @@
 string ros_topic
 string mqtt_topic
 bool primitive false
+bool json false
 bool inject_timestamp false
 uint32 ros_queue_size 1
 uint8 mqtt_qos 0
