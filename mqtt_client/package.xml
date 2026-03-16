@@ -28,6 +28,7 @@
   <depend>rclcpp_components</depend>
   <depend>rcpputils</depend>
   <depend>rosx_introspection</depend>
+  <depend>nlohmann-json-dev</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

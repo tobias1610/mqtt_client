@@ -15,6 +15,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosx_introspection REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 # Paho MQTT C++ apt package doesn't include CMake config
 find_library(PahoMqttC_LIBRARY libpaho-mqtt3as.so.1 REQUIRED)
@@ -34,6 +35,7 @@ target_include_directories(${PROJECT_NAME}_lib PUBLIC
 target_link_libraries(${PROJECT_NAME}_lib
   ${PahoMqttC_LIBRARY}
   ${PahoMqttCpp_LIBRARY}
+  nlohmann_json::nlohmann_json
 )
 
 ament_target_dependencies(${PROJECT_NAME}_lib

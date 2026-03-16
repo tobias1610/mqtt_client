@@ -31,13 +31,13 @@ SOFTWARE.
 #include <memory>
 #include <stdexcept>
 #include <vector>
-
 #include <mqtt_client/MqttClient.hpp>
 #include <mqtt_client_interfaces/msg/ros_msg_type.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <rcpputils/env.hpp>
 #include <rosx_introspection/ros_parser.hpp>
 #include <rosx_introspection/ros_utils/ros2_helpers.hpp>
+#include <nlohmann/json.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/char.hpp>
 #include <std_msgs/msg/float32.hpp>
@@ -265,6 +265,78 @@ bool primitiveRosMessageToString(
   }
 
   return found_primitive;
+}
+
+nlohmann::json variant_to_json(const RosMsgParser::Variant& v) {
+  // rosx_introspection speichert skalare Werte in einem std::variant-ähnlichen
+  // Typ. Wir prüfen den internen Typ und konvertieren entsprechend.
+  switch (v.getTypeID()) {
+    case RosMsgParser::BuiltinType::BOOL:    return v.convert<bool>();
+    case RosMsgParser::BuiltinType::BYTE:
+    case RosMsgParser::BuiltinType::UINT8:   return v.convert<uint8_t>();
+    case RosMsgParser::BuiltinType::CHAR:
+    case RosMsgParser::BuiltinType::INT8:    return v.convert<int8_t>();
+    case RosMsgParser::BuiltinType::UINT16:  return v.convert<uint16_t>();
+    case RosMsgParser::BuiltinType::INT16:   return v.convert<int16_t>();
+    case RosMsgParser::BuiltinType::UINT32:  return v.convert<uint32_t>();
+    case RosMsgParser::BuiltinType::INT32:   return v.convert<int32_t>();
+    case RosMsgParser::BuiltinType::UINT64:  return v.convert<uint64_t>();
+    case RosMsgParser::BuiltinType::INT64:   return v.convert<int64_t>();
+    case RosMsgParser::BuiltinType::FLOAT32: return v.convert<float>();
+    case RosMsgParser::BuiltinType::FLOAT64: return v.convert<double>();
+    case RosMsgParser::BuiltinType::STRING:  return v.convert<std::string>();
+    default: return nullptr;
+  }
+}
+
+
+nlohmann::json flat_msg_to_json(const RosMsgParser::FlatMessage& flat_msg) {
+  nlohmann::json root;
+
+  for (const auto& [key, value] : flat_msg.value) {
+    // Schlüssel aufteilen, z. B. "Twist.linear.x" → ["Twist","linear","x"]
+    // Das erste Segment (Typ-Name) überspringen wir.
+    std::vector<std::string> parts;
+    std::string token;
+    bool first = true;
+    for (char c : key.toStdString()) {
+      if (c == '.') {
+        if (!first) parts.push_back(token);  // erstes Segment weglassen
+        first = false;
+        token.clear();
+      } else {
+        token += c;
+      }
+    }
+    if (!first) parts.push_back(token);
+
+    // Verschachtelt in das JSON-Objekt schreiben
+    nlohmann::json* node = &root;
+    for (size_t i = 0; i + 1 < parts.size(); ++i) {
+      if (!node->contains(parts[i]) || !(*node)[parts[i]].is_object()) {
+        (*node)[parts[i]] = nlohmann::json::object();
+      }
+      node = &(*node)[parts[i]];
+    }
+    if (!parts.empty()) {
+      (*node)[parts.back()] = variant_to_json(value);
+    }
+  }
+
+  // Arrays (z. B. float[9] in sensor_msgs/Imu) ebenfalls eintragen
+  for (const auto& [key, vec] : flat_msg.name) {
+    std::string field_name = key.toStdString();
+    // Letztes Segment als Array-Key
+    auto dot = field_name.rfind('.');
+    std::string arr_key = (dot != std::string::npos)
+                              ? field_name.substr(dot + 1)
+                              : field_name;
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& v : vec) arr.push_back(variant_to_json(v));
+    root[arr_key] = arr;
+  }
+
+  return root;
 }
 
 
@@ -1116,16 +1188,17 @@ void MqttClient::ros2mqtt(
     // resolve ROS message to JSON string
     std::string payload;
 
-    RosMsgParser::FlatMessage flat_msg;
-    RosMsgParser::RenamedValues renamed_values;
+    RosMsgParser::ParsersCollection<RosMsgParser::ROS2_Deserializer> parser;
+    parser.registerParser(ros_topic, RosMsgParser::ROSType(ros_msg_type.name), RosMsgParser::GetMessageDefinition(ros_msg_type.name));
+
+    const auto* buf = reinterpret_cast<const uint8_t*>(serialized_msg->get_rcl_serialized_message().buffer);
+    const size_t buf_size = serialized_msg->get_rcl_serialized_message().buffer_length;
     
-    RosMsgParser::Parser parser(ros_topic, RosMsgParser::ROSType(ros_msg_type.name), RosMsgParser::GetMessageDefinition(ros_msg_type.name));
-    RosMsgParser::ROS2_Deserializer deserializer;
-
-    std::vector<uint8_t> buffer_in = RosMsgParser::BuildMessageBuffer(serialized_msg, ros_topic);
-
-    parser.deserializeIntoJson(buffer_in, &payload, &deserializer);
-    payload_buffer = std::vector<uint8_t>(payload.begin(), payload.end());
+    RosMsgParser::Span<const uint8_t> buffer_span(buf, buf_size);
+  
+    auto flat_msg = parser.deserialize(ros_topic, buffer_span);
+    
+    auto json = flat_msg_to_json(*flat_msg);
     RCLCPP_INFO(get_logger(), "JSON-Payload '%s'", payload.c_str());
   } else if (ros2mqtt.primitive) {  // publish as primitive (string) message
 
